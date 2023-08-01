@@ -28,7 +28,6 @@ ind = [R(datum) for datum in data[:n//_sage_const_2 ]]
 dat = [R(datum) for datum in data[n//_sage_const_2 :]]
 
 
-
 timer1 = Timer().start()
 
 # Recover the index vector
@@ -58,10 +57,11 @@ for i in range(s - _sage_const_1 ):
 V = V.transpose()
 
 VDX = matrix(R, s, dat[:s])
-print(V**(-_sage_const_1 )*VDX)
-
+answer = V**(-_sage_const_1 )*VDX
 timer1.stop()
 
+print("Result: ", answer.T)
+
 # Print out the result
-print(timer1.walltime)
+print("Timing for decompression: ", timer1.walltime)
 

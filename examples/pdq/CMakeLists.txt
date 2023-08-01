@@ -9,6 +9,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License. See accompanying LICENSE file.
 find_package(helib)
-add_executable(pdq pdq.cpp)
+add_executable(compress compress.cpp)
 
-target_link_libraries(pdq helib)
+target_link_libraries(compress helib)
