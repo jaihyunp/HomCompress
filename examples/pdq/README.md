@@ -6,6 +6,6 @@ make
 
 # How to Run
 ```bash
-compress [logN=logN] [logs=logs]
+./compress [logN=logN] [logs=logs]
 sage decompress.sage
 ```
