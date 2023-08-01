@@ -32,22 +32,19 @@ int modpow(int a, int b, int p) {
         return 1;
 
     int res = modpow(a, b / 2, p);
-    res = (res * res) % p;
+    res = ((long long int) res * res) % p;
 
     if (b % 2)
-        res = (res * a) % p;
+        res = ((long long int) res * a) % p;
     
     return res;
 }
 
 int main(int argc, char* argv[])
 {
-    /************ HElib boiler plate ************/
-  
-    // Note: The parameters have been chosen to provide a somewhat
-    // faster running time with a non-realistic security level.
-    // Do Not use these parameters in real applications.
-  
+    int logN = 14;
+    int logs = 7;
+
     // Plaintext prime modulus
     unsigned long p = 65537;
     // Cyclotomic polynomial - defines phi(m)
@@ -55,26 +52,25 @@ int main(int argc, char* argv[])
     // Hensel lifting (default = 1)
     unsigned long r = 1;
     // Number of bits of the modulus chain
-    unsigned long bits = 100;
+    unsigned long bits = 80;
     // Number of columns of Key-Switching matrix (default = 2 or 3)
     unsigned long c = 1;
     // Size of NTL thread pool (default =1)
     unsigned long nthreads = 1;
     // input database file name
-    std::string db_filename = "./countries_dataset.csv";
+    std::string answer_file = "./ans.csv";
     // debug output (default no debug output)
-    bool debug = true;
+    bool debug = false;
   
     helib::ArgMap amap;
+    amap.arg("logN", logN, "bit-size of the database");
+    amap.arg("logs", logs, "bit-size of the maximal query");
     amap.arg("m", m, "Cyclotomic polynomial ring");
     amap.arg("p", p, "Plaintext prime modulus");
     amap.arg("r", r, "Hensel lifting");
     amap.arg("bits", bits, "# of bits in the modulus chain");
     amap.arg("c", c, "# fo columns of Key-Switching matrix");
     amap.arg("nthreads", nthreads, "Size of NTL thread pool");
-    amap.arg("db_filename",
-             db_filename,
-             "Qualified name for the database filename");
     amap.toggle().arg("-debug", debug, "Toggle debug output", "");
     amap.parse(argc, argv);
   
@@ -132,21 +128,25 @@ int main(int argc, char* argv[])
   
   
     // Get the EncryptedArray of the context
-    const helib::EncryptedArray& ea = context.getEA();
+//    const helib::EncryptedArray& ea = context.getEA();
   
     // Print the context
-    std::cout << std::endl;
+//    std::cout << std::endl;
     if (debug)
       context.printout();
-  
+//    std::ofstream context_file;
+//    context_file.open("./context.txt");
+//    context.writeToJSON(context_file);
+//    context_file.close();
+
     // Print the security level
     // Note: This will be negligible to improve performance time.
-    std::cout << "\n***Security Level: " << context.securityLevel()
-              << " *** Negligible for this example ***" << std::endl;
+    std::cout << "\n***Security Level: " << context.securityLevel() << std::endl;
+//              << " *** Negligible for this example ***" << std::endl;
   
     // Get the number of slot (phi(m))
-    long nslots = ea.size();
-    std::cout << "\nNumber of slots: " << nslots << std::endl;
+    long nslots = m >> 1;
+//    std::cout << "\nNumber of slots: " << nslots << std::endl;
 
 //    helib::Ptxt<helib::BGV> keys(context);
 //    helib::Ptxt<helib::BGV> data(context);
@@ -155,32 +155,21 @@ int main(int argc, char* argv[])
 //        keys[i] = i;
 //    }
 
-    int logr = 7;
-    int col = 1 << 14; 
+    int logr = logs + 1;
+    int col = 1 << logN; 
     int row = 1 << logr;
     int maxg = 1 << (logr/2);
+    int N = 1 << logN;
+    int s = 1 << logs;
         
     helib::Ptxt<helib::BGV> ptxt_res2(context);
-
-    std::vector<helib::Ptxt<helib::BGV> > query;
-    for (int i = 0; i < col / nslots; i ++) {
-        helib::Ptxt<helib::BGV> query_single(context); 
-        for (int i = 0; i < query_single.size(); i ++)
-            query_single[i] = 0;
-        query.push_back(query_single);
+    std::vector<int> data (N);
+    for (int i = 0; i < N; i ++) {
+        data[i] = (i + 101) % p;
     }
-//    query[0][2] = 1;
-    query[0][2] = 1;
+//    std::cout << "hi" << std::endl;
 
-    std::vector<helib::Ctxt> _query;
-    for (int i = 0; i < col / nslots; i ++) {
-        helib::Ctxt _query_single(public_key);
-        public_key.Encrypt(_query_single, query[i]);
-        _query.push_back(_query_single);
-    }
-
-    std::cout << "hi" << std::endl;
-
+    HELIB_NTIMER_START(timer_Tiling);
     // Tiling
     std::vector<std::vector<helib::Ptxt<helib::BGV> > > matrix;
     for (int i = 0; i < col / nslots; i ++) {
@@ -199,15 +188,58 @@ int main(int argc, char* argv[])
 //                    idxc = ((i*nslots + slot/2 + j) % col) % p;
 //                    idxr = (i*nslots + slot/2) % row;
 //                }
-                matrix_row[slot] = modpow(idxc + 1, idxr, p);//modpow(idxc, idxr, p);
+                if (idxr < s) {
+                    matrix_row[slot] = modpow(idxc + 1, idxr + 1, p);//modpow(idxc, idxr, p);
+                } else {
+                    matrix_row[slot] = ((long long int) data[idxc] * modpow(idxc + 1, idxr - s + 1, p)) % p;
+                }
             }
             matrix_single.push_back(matrix_row);
         }
         matrix.push_back(matrix_single);
     }
 
-    std::cout << "hi" << std::endl;
-   
+//    std::cout << "hi" << std::endl;
+    HELIB_NTIMER_STOP(timer_Tiling);
+  
+
+    HELIB_NTIMER_START(timer_Query);
+    std::vector<helib::Ptxt<helib::BGV> > query;
+    for (int i = 0; i < col / nslots; i ++) {
+        helib::Ptxt<helib::BGV> query_single(context); 
+        for (int i = 0; i < query_single.size(); i ++)
+            query_single[i] = 0;
+        query.push_back(query_single);
+    }
+    std::vector<int> position = {
+        1,12,123,1234,12345,2,23,234,2345,
+        21,212,2123,21234,212345,22,223,2234,22345,
+        31,312,3123,31234,312345,32,323,3234,32345,
+        41,412,4123,41234,412345,42,423,4234,42345
+        }; // starts from 1
+    while (position.size() < 128) {
+        position.push_back(random() % N);
+    }
+    for (int i = 0; i < s/2; i ++) { 
+        int pos = (position[i] + N - 1) % N;
+        int idx1 = pos / nslots;
+        int idx2 = (pos % nslots) / (nslots / 2);
+        int idx3 = pos % (nslots / 2);
+//        std::cout << idx1 << ", " << idx2 + 2*idx3 << std::endl;
+        query[idx1][idx2 + 2 * idx3] = 1;
+    }
+
+//    query[0][0] = 1;
+
+    std::vector<helib::Ctxt> _query;
+    for (int i = 0; i < col / nslots; i ++) {
+        helib::Ctxt _query_single(public_key);
+        public_key.Encrypt(_query_single, query[i]);
+        _query.push_back(_query_single);
+    }
+    HELIB_NTIMER_STOP(timer_Query);
+
+
     
     HELIB_NTIMER_START(timer_TotalQuery);
     helib::Ctxt zip(public_key);
@@ -229,7 +261,7 @@ int main(int argc, char* argv[])
 //            std::cout << "temp: " << ptxt_res2 << std::endl;
         }
 
-        std::cout << "hi" << i << std::endl;
+//        std::cout << "hi" << i << std::endl;
 
         helib::Ctxt product(public_key);
         // Giant-step
@@ -293,10 +325,35 @@ int main(int argc, char* argv[])
     zip += zip2;
     HELIB_NTIMER_STOP(timer_TotalQuery);
 
+    zip.cleanUp();
 
+    HELIB_NTIMER_START(timer_Decrypt);
     secret_key.Decrypt(ptxt_res2, zip);
-    std::cout << "Final Result: " << ptxt_res2 << std::endl;
+    HELIB_NTIMER_STOP(timer_Decrypt);
+
+    HELIB_NTIMER_START(timer_Test);
+    std::ofstream file;
+    file.open(answer_file);
+    for (int i = 0; i < row; i ++) {
+        file << ptxt_res2[2*i];
+        if (i != row - 1)
+            file << ",";
+        else
+            file << std::endl;
+    }
+    file.close();
+    HELIB_NTIMER_STOP(timer_Test);
+
+//    std::cout << "Final Result: " << ptxt_res2 << std::endl;
+    helib::printNamedTimer(std::cout, "timer_Tiling");
+    helib::printNamedTimer(std::cout, "timer_Query");
     helib::printNamedTimer(std::cout, "timer_TotalQuery");
+    helib::printNamedTimer(std::cout, "timer_Decrypt");
+//    helib::printNamedTimer(std::cout, "timer_Test");
+//    std::ofstream output;
+//    output.open("./compressed.ctxt");
+//    zip.writeTo(output);
+//    output.close();
 
 //    helib::Ptxt<helib::BGV> ptxt_res1(context);
 //    for (int i = 0; i < _query.size(); i ++) {
