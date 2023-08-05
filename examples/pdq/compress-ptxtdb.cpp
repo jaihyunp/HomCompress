@@ -43,7 +43,7 @@ int modpow(int a, int b, int p) {
 int main(int argc, char* argv[])
 {
     int logN = 14;
-    int logs = 4;
+    int logs = 7;
 
     // Plaintext prime modulus
     unsigned long p = 65537;
@@ -124,10 +124,10 @@ int main(int argc, char* argv[])
     
     // Get the number of slot (phi(m))
     long nslots = m >> 1;
-    int logr = logs;
+    int logr = logs + 1;
     int col = 1 << logN; 
     int row = 1 << logr;
-    int maxg = 1 << ((logr+1)/2);
+    int maxg = 1 << ((logr + 1)/2);
     int N = 1 << logN;
     int s = 1 << logs;
     std::cout << "\n---Homomorphic Compression Params: " << std::endl;
@@ -144,17 +144,18 @@ int main(int argc, char* argv[])
     }
 
 
+
     // Generate the sparse input vector
     HELIB_NTIMER_START(timer_Query);
     std::vector<int> position = {
-        1,2,12,123,1234,12345,23,234,2345,
+        1,12,123,1234,12345,2,23,234,2345,
         21,212,2123,21234,212345,22,223,2234,22345,
         31,312,3123,31234,312345,32,323,3234,32345,
         41,412,4123,41234,412345,42,423,4234,42345
         }; // This indicates the indices of non-zero elements in the sparse input vector. The index starts from 1.
 
     std::vector<helib::Ptxt<helib::BGV> > query;
-    for (int i = 0; i < col / (nslots / 2); i ++) {
+    for (int i = 0; i < col / nslots; i ++) {
         helib::Ptxt<helib::BGV> query_single(context); 
         for (int i = 0; i < query_single.size(); i ++)
             query_single[i] = 0;
@@ -163,16 +164,16 @@ int main(int argc, char* argv[])
     while (position.size() < 128) {
         position.push_back(random() % N);
     }
-    for (int i = 0; i < s; i ++) {
+    for (int i = 0; i < s; i ++) { 
         int pos = (position[i] + N - 1) % N;
-        int idx1 = pos / (nslots / 2);
-        int idx2 = pos % (nslots / 2);
-        query[idx1][2 * idx2] = 1;
-        query[idx1][2 * idx2 + 1] = data[pos];
+        int idx1 = pos / nslots;
+        int idx2 = (pos % nslots) / (nslots / 2);
+        int idx3 = pos % (nslots / 2);
+        query[idx1][idx2 + 2 * idx3] = 1;
     }
 
     std::vector<helib::Ctxt> _query;
-    for (int i = 0; i < col / (nslots / 2); i ++) {
+    for (int i = 0; i < col / nslots; i ++) {
         helib::Ctxt _query_single(public_key);
         public_key.Encrypt(_query_single, query[i]);
         _query.push_back(_query_single);
@@ -184,16 +185,19 @@ int main(int argc, char* argv[])
     // Tiling (Offline and reusuable)
     HELIB_NTIMER_START(timer_Tiling);
     std::vector<std::vector<helib::Ptxt<helib::BGV> > > matrix;
-    for (int i = 0; i < col / (nslots / 2); i ++) {
+    for (int i = 0; i < col / nslots; i ++) {
         std::vector<helib::Ptxt<helib::BGV> > matrix_single;
         for (int j = 0; j < row; j ++) {
             helib::Ptxt<helib::BGV> matrix_row(context);
 
-            for (int slot = 0; slot < (nslots / 2); slot ++) {
-                int idxc = ((slot + j) % (nslots/2) + i*(nslots/2)) % col;
-                int idxr = (slot) % row;
-                matrix_row[2 * slot] = modpow(idxc + 1, idxr + 1, p);
-                matrix_row[2 * slot + 1] = modpow(idxc + 1, idxr + 1, p);
+            for (int slot = 0; slot < nslots; slot ++) {
+                int idxc = ((slot/2 + j) % (nslots/2) + (slot & 1) * nslots/2 + i*nslots) % col;
+                int idxr = (i*nslots + (slot & 1) * nslots/2 + slot/2) % row;
+                if (idxr < s) {
+                    matrix_row[slot] = modpow(idxc + 1, idxr + 1, p);
+                } else {
+                    matrix_row[slot] = ((long long int) data[idxc] * modpow(idxc + 1, idxr - s + 1, p)) % p;
+                }
             }
             matrix_single.push_back(matrix_row);
         }
@@ -207,7 +211,7 @@ int main(int argc, char* argv[])
     HELIB_NTIMER_START(timer_TotalQuery);
     helib::Ctxt zip(public_key);
     // For each sub-matrix,
-    for (int i = 0; i < col / (nslots / 2); i ++) {
+    for (int i = 0; i < col / nslots; i ++) {
 
         // Baby-step
         std::vector<helib::Ctxt> rotated_query;
@@ -245,35 +249,44 @@ int main(int argc, char* argv[])
                 product += giant;
             }
         }
+
+
+        // THIS CODE IS SOMEHOW OUTDATED!!
+        // WE CAN HOIST THIS PART!!
+        // MODIFY IF DECIDED TO INCLUDE THIS CODE IN THE PAPER!!
+        // sum all
+        helib::Ctxt res(product);
+        for (int j = 0; j < log2(nslots) - 1 - logr; j ++) {
+            helib::Ctxt temp(res);
+            temp.smartAutomorph(modpow(3, row*pow(2,j), m));
+            res += temp;
+        }
         if (!i) {
-            zip = product;
+            zip = res;
         } else {
-            zip += product;
+            zip += res;
         } 
     }
-    // sum all
-    helib::Ctxt res(zip);
-    for (int j = 0; j < log2(nslots) - 1 - logr; j ++) {
-        helib::Ctxt temp(res);
-        temp.smartAutomorph(modpow(3, row*pow(2,j), m));
-        res += temp;
-    }
+
+    helib::Ctxt zip2(zip);
+    zip2.smartAutomorph(m/2 - 1); 
+    zip += zip2;
     HELIB_NTIMER_STOP(timer_TotalQuery);
 
 
     // Decrypt and Decode (Client-side Online)
     HELIB_NTIMER_START(timer_Decrypt);
     helib::Ptxt<helib::BGV> ptxt_res(context);
-    secret_key.Decrypt(ptxt_res, res);
+    secret_key.Decrypt(ptxt_res, zip);
     HELIB_NTIMER_STOP(timer_Decrypt);
 
 
     // For the downstream task (see decompress.sage)
     std::ofstream file;
     file.open(answer_file);
-    for (int i = 0; i < 2*s; i ++) {
-        file << ptxt_res[i];
-        if (i != 2*s - 1)
+    for (int i = 0; i < row; i ++) {
+        file << ptxt_res[2*i];
+        if (i != row - 1)
             file << ",";
         else
             file << std::endl;

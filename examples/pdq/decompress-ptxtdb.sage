@@ -24,8 +24,8 @@ data = np.fromstring(data, sep=',').astype(int)
 n = len(data)
 p = _sage_const_65537 
 R = IntegerModRing(p)
-ind = [R(datum) for datum in data[0::2]]
-dat = [R(datum) for datum in data[1::2]]
+ind = [R(datum) for datum in data[:n//_sage_const_2 ]]
+dat = [R(datum) for datum in data[n//_sage_const_2 :]]
 
 
 timer1 = Timer().start()
